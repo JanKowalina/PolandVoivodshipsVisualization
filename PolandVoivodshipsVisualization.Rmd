@@ -1,0 +1,94 @@
+---
+title: "Poland Voivodships Visualization"
+output: html_document
+date: "2023-02-02"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+# install.packages("geojsonio")
+# install.packages("readxl")
+# install.packages("leaflet")
+# install.packages("stats")
+```
+
+```{r, echo = TRUE, warning = FALSE, message = FALSE}
+library(geojsonio)
+library(readxl)
+library(leaflet)
+library(stats)
+```
+
+
+```{r include=FALSE}
+#here path to the main folder needs to be specified so that the rest of the needed excel tables will be able to upload automatically
+main_dir_path = "D:/PG_D/portfolio_git/Statistics/PolandVoivodshipsVisualization" 
+setwd(main_dir_path)
+
+#loading Poland voivodships polygons
+voivodships <- geojson_read("poland-with-regions_.geojson", what = "sp")
+
+#loading and transforming required excel tables
+population <- read_excel("population.xlsx", col_names = FALSE)
+colnames(population) <- c("voivodship", "population")
+population$voivodship <- tolower(population$voivodship)
+
+voivodship_names <- voivodships@data$name
+voivodship_names <- data.frame(voivodship_names)
+colnames(voivodship_names) <- c("voivodship")
+voivodship_names$voivodship <- tolower(voivodship_names$voivodship)
+
+number_of_cities  <- read_excel("number_of_cities.xlsx", col_names = TRUE)
+colnames(number_of_cities) <- c("voivodship", "number_of_cities")
+
+#merging of using left inner join in order to retain order of voivodships names
+ordered_voivodships <- merge(x=voivodship_names, y=population, by="voivodship", all.x = TRUE)
+
+ordered_voivodships <- merge(x=ordered_voivodships, y=number_of_cities, by="voivodship", all.x = TRUE)
+
+```
+
+
+```{r}
+
+pl_coordinates <- c(51.93046841624075, 18.913610940888134)
+
+#creating text for pop-ups
+labels <- paste(
+        "<b> Voivoship: </b>", voivodships@data$name, "<br>",
+        "<b> Population: </b>", round(ordered_voivodships$population/1000000,2)," <b>M</b>", "<br>",
+        "<b> Number of cities: </b>", ordered_voivodships$number_of_cities, "<br>",sep="") %>%
+  lapply(htmltools::HTML)
+
+
+#division of voivodships on 5 groups using kmeans and creating color palette
+set.seed(321)
+
+km_population <- kmeans(ordered_voivodships$population, centers=5, nstart = 10)
+km_population_initial = km_population$cluster
+km_clusters_initial = sort(unique(km_population_initial))
+km_clusters = append(0, km_clusters_initial)
+km_clusters = head(km_clusters, -1)
+km_clusters = append(km_clusters, Inf)
+km_population = km_population_initial - 0.5
+
+bin_pal <- colorBin(palette="YlOrBr", domain=km_population, na.color="transparent", bins=km_clusters)
+
+#displaying of map
+leaflet(voivodships) %>% 
+  addProviderTiles("OpenStreetMap.Mapnik") %>%
+  setView( lat=pl_coordinates[1], lng=pl_coordinates[2] , zoom=6) %>%
+  addPolygons(stroke = FALSE, 
+              fillOpacity = 0.5, 
+              fillColor = ~bin_pal(km_population),
+              label = labels ) %>%  
+addLegend(pal=bin_pal, values=~km_population_initial, opacity=0.9, title = "Population (M)", position = "bottomleft" )
+
+```
+
+
+
